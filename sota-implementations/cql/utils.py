@@ -195,6 +195,58 @@ def make_offline_replay_buffer(rb_cfg):
     return data
 
 
+def make_offline_discrete_replay_buffer(rb_cfg):
+    import gymnasium as gym
+    import minari
+    from minari import DataCollector
+
+    # Create custom minari dataset from environment
+
+    env = gym.make(rb_cfg.env)
+    env = DataCollector(env)
+
+    for _ in range(rb_cfg.episodes):
+        env.reset(seed=123)
+        while True:
+            action = env.action_space.sample()
+            obs, rew, terminated, truncated, info = env.step(action)
+            if terminated or truncated:
+                break
+
+    env.create_dataset(
+        dataset_id=rb_cfg.dataset,
+        algorithm_name="Random-Policy",
+        code_permalink="https://github.com/Farama-Foundation/Minari",
+        author="Farama",
+        author_email="contact@farama.org",
+    )
+
+    data = MinariExperienceReplay(
+        dataset_id=rb_cfg.dataset,
+        split_trajs=False,
+        batch_size=rb_cfg.batch_size,
+        load_from_local_minari=True,
+        sampler=SamplerWithoutReplacement(drop_last=True),
+        prefetch=4,
+    )
+
+    data.append_transform(DoubleToFloat())
+
+    def transform_data(data):
+        data *= 1
+
+    with torch.enable_grad():
+        data.append_transform(
+            transform_data,
+            invert=True,
+        )
+
+    # Clean up
+
+    minari.delete_dataset(rb_cfg.dataset)
+    return data
+
+
 # ====================================================================
 # Model
 # -----
@@ -354,9 +406,14 @@ def make_continuous_loss(loss_cfg, model, device: torch.device | None = None):
 
 
 def make_discrete_loss(loss_cfg, model, device: torch.device | None = None):
+
+    # Get action space from the model
+    model.spec["action"]
+
     loss_module = DiscreteCQLLoss(
         model,
         loss_function=loss_cfg.loss_function,
+        action_space="categorical",
         delay_value=True,
     )
     loss_module.make_value_estimator(gamma=loss_cfg.gamma, device=device)

@@ -3683,6 +3683,7 @@ class TestMinari:
 
         minari.delete_dataset(dataset_id="cartpole/test-local-v1")
 
+
 @pytest.mark.slow
 class TestRoboset:
     def test_load(self):
